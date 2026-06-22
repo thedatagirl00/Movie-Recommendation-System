@@ -1,52 +1,51 @@
 
 
-import streamlit as st
+from flask import Flask, request, jsonify
 import pandas as pd
 import os
 import zipfile
 import io
 import requests
 
-st.title('Movie Recommendation System')
+app = Flask(__name__)
 
-# --- Data Loading and Preprocessing ---
-@st.cache_data # Cache data loading to avoid re-running on every interaction
-def load_data():
-    MOVIES_URL = 'http://files.grouplens.org/datasets/movielens/ml-100k.zip'
-    DATA_DIR = './ml-100k'
+# --- Data Loading and Preprocessing (Copied from previous steps) ---
+# Define the URL for the MovieLens 100k dataset
+MOVIES_URL = 'http://files.grouplens.org/datasets/movielens/ml-100k.zip'
+DATA_DIR = './ml-100k'
 
-    if not os.path.exists(DATA_DIR):
-        st.write("Downloading MovieLens 100k dataset...")
-        response = requests.get(MOVIES_URL)
-        with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
-            zf.extractall('.')
-        st.write("Download and extraction complete.")
+# Download and extract the dataset if not already present
+if not os.path.exists(DATA_DIR):
+    # print("Downloading MovieLens 100k dataset...") # Removed print statement
+    response = requests.get(MOVIES_URL)
+    with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+        zf.extractall('.')
+    # print("Download and extraction complete.") # Removed print statement
 
-    ratings_cols = ['user_id', 'movie_id', 'rating', 'timestamp']
-    ratings_df = pd.read_csv(os.path.join(DATA_DIR, 'u.data'), sep='\t', names=ratings_cols, encoding='latin-1')
+# Define column names based on the dataset's README
+ratings_cols = ['user_id', 'movie_id', 'rating', 'timestamp']
+ratings_df = pd.read_csv(os.path.join(DATA_DIR, 'u.data'), sep='\t', names=ratings_cols, encoding='latin-1')
 
-    movie_cols = ['movie_id', 'movie_title', 'release_date', 'video_release_date', 'IMDb_URL',
-                  'unknown', 'Action', 'Adventure', 'Animation', 'Children\'s', 'Comedy',
-                  'Crime', 'Documentary', 'Drama', 'Fantasy', 'Film-Noir', 'Horror',
-                  'Musical', 'Mystery', 'Romance', 'Sci-Fi', 'Thriller', 'War', 'Western']
-    movies_df = pd.read_csv(os.path.join(DATA_DIR, 'u.item'), sep='|', names=movie_cols, encoding='latin-1')
+movie_cols = ['movie_id', 'movie_title', 'release_date', 'video_release_date', 'IMDb_URL',
+              'unknown', 'Action', 'Adventure', 'Animation', 'Children\'s', 'Comedy',
+              'Crime', 'Documentary', 'Drama', 'Fantasy', 'Film-Noir', 'Horror',
+              'Musical', 'Mystery', 'Romance', 'Sci-Fi', 'Thriller', 'War', 'Western']
+movies_df = pd.read_csv(os.path.join(DATA_DIR, 'u.item'), sep='|', names=movie_cols, encoding='latin-1')
 
-    movies_df_cleaned = movies_df.drop(columns=['release_date', 'video_release_date', 'IMDb_URL'])
-    ratings_df = ratings_df.drop(columns=['timestamp'])
-    merged_df = pd.merge(ratings_df, movies_df_cleaned, on='movie_id')
+# Drop unnecessary columns and merge
+movies_df_cleaned = movies_df.drop(columns=['release_date', 'video_release_date', 'IMDb_URL'])
+ratings_df = ratings_df.drop(columns=['timestamp'])
+merged_df = pd.merge(ratings_df, movies_df_cleaned, on='movie_id')
 
-    user_movie_matrix = merged_df.pivot_table(index='user_id', columns='movie_title', values='rating')
-    return user_movie_matrix, movies_df # Return movies_df to get all movie titles
+# Create user-item matrix
+user_movie_matrix = merged_df.pivot_table(index='user_id', columns='movie_title', values='rating')
 
-user_movie_matrix, movies_df = load_data()
-
-# --- Recommendation Function ---
-@st.cache_data # Cache the recommendation function as well
+# --- Recommendation Function (Copied from previous steps) ---
 def recommend_movies(movie_title, user_movie_matrix, num_recommendations=10):
     try:
         movie_ratings = user_movie_matrix[movie_title]
     except KeyError:
-        return pd.Series(dtype=float)
+        return pd.Series(dtype=float) # Return empty series for consistency
 
     similar_to_movie = user_movie_matrix.corrwith(movie_ratings)
     corr_movie = pd.DataFrame(similar_to_movie, columns=['Correlation'])
@@ -64,26 +63,24 @@ def recommend_movies(movie_title, user_movie_matrix, num_recommendations=10):
 
     return recommendations.head(num_recommendations)
 
-# --- Streamlit UI ---
-st.header('Get Movie Recommendations')
+# --- Flask Routes ---
+@app.route('/recommend', methods=['GET'])
+def get_recommendations():
+    movie_title = request.args.get('movie')
+    if not movie_title:
+        return jsonify({'error': 'Please provide a movie title as a query parameter (e.g., /recommend?movie=Toy Story (1995))'}), 400
 
-# Get a list of all movie titles for the dropdown
-all_movie_titles = sorted(movies_df['movie_title'].unique().tolist())
+    recommendations = recommend_movies(movie_title, user_movie_matrix)
 
-selected_movie = st.selectbox(
-    'Choose a movie:',
-    all_movie_titles
-)
-
-if st.button('Get Recommendations'):
-    if selected_movie:
-        st.write(f"## Recommendations for '{selected_movie}':")
-        recommendations = recommend_movies(selected_movie, user_movie_matrix)
-
-        if recommendations.empty:
-            st.write(f"No recommendations found for '{selected_movie}'. It might not be in the dataset or have enough ratings.")
-        else:
-            # Display recommendations in a nice format
-            st.table(recommendations.reset_index().rename(columns={'index': 'Movie Title', 'Correlation': 'Similarity Score'}))
+    if recommendations.empty:
+        return jsonify({'message': f"No recommendations found for '{movie_title}'. It might not be in the dataset or have enough ratings."}), 404
     else:
-        st.write("Please select a movie to get recommendations.")
+        return jsonify(recommendations.to_dict(orient='index'))
+
+@app.route('/')
+def home():
+    return "<h1>Movie Recommendation API</h1><p>Use /recommend?movie=<movie_title> to get recommendations.</p>"
+
+if __name__ == '__main__':
+    # Running on port 5001 now instead of 5000
+    app.run(host='127.0.0.1', port=5001)
