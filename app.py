@@ -16,11 +16,11 @@ def load_data():
     DATA_DIR = './ml-100k'
 
     if not os.path.exists(DATA_DIR):
-        st.write("Downloading MovieLens 100k dataset...")
+        # st.write("Downloading MovieLens 100k dataset...") # Removed st.write statement
         response = requests.get(MOVIES_URL)
         with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
             zf.extractall('.')
-        st.write("Download and extraction complete.")
+        # st.write("Download and extraction complete.") # Removed st.write statement
 
     ratings_cols = ['user_id', 'movie_id', 'rating', 'timestamp']
     ratings_df = pd.read_csv(os.path.join(DATA_DIR, 'u.data'), sep='\t', names=ratings_cols, encoding='latin-1')
